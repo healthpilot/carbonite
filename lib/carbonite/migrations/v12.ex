@@ -25,6 +25,8 @@ defmodule Carbonite.Migrations.V12 do
       WITH settings AS (SELECT NULLIF(current_setting('#{prefix}.override_mode', TRUE), '')::TEXT AS override_mode)
       SELECT
         primary_key_columns,
+        parent_table_name,
+        parent_primary_key_columns,
         excluded_columns,
         filtered_columns,
         CASE
@@ -59,6 +61,8 @@ defmodule Carbonite.Migrations.V12 do
         NULL,
         '{}',
         NULL,
+        NULL,
+        trigger_row.parent_table_name,
         NULL
       );
 
@@ -74,6 +78,21 @@ defmodule Carbonite.Migrations.V12 do
         FOREACH pk_col IN ARRAY trigger_row.primary_key_columns LOOP
           EXECUTE 'SELECT $1.' || quote_ident(pk_col) || '::TEXT' USING pk_source INTO pk_col_val;
           change_row.table_pk := change_row.table_pk || pk_col_val;
+        END LOOP;
+      END IF;
+
+      /* collect parent table pk */
+      IF trigger_row.parent_primary_key_columns != '{}' THEN
+        IF (TG_OP IN ('INSERT', 'UPDATE')) THEN
+          pk_source := NEW;
+        ELSIF (TG_OP = 'DELETE') THEN
+          pk_source := OLD;
+        END IF;
+
+        change_row.parent_table_pk = '{}';
+        FOREACH pk_col IN ARRAY trigger_row.parent_primary_key_columns LOOP
+          EXECUTE 'SELECT $1.' || quote_ident(pk_col) || '::TEXT' USING pk_source INTO pk_col_val;
+          change_row.parent_table_pk := change_row.parent_table_pk || pk_col_val;
         END LOOP;
       END IF;
 
@@ -155,6 +174,20 @@ defmodule Carbonite.Migrations.V12 do
   def up(opts) do
     prefix = Keyword.get(opts, :carbonite_prefix, default_prefix())
 
+    alter table("triggers", primary_key: false, prefix: prefix) do
+      add(:parent_table_name, :string, null: true)
+      add(:parent_primary_key_columns, {:array, :string}, null: false, default: [])
+    end
+
+    alter table("changes", primary_key: false, prefix: prefix) do
+      add(:parent_table_name, :string, null: true)
+      add(:parent_table_pk, {:array, :string}, null: true)
+    end
+
+    create(
+      index("changes", [:table_prefix, :parent_table_name, :parent_table_pk], prefix: prefix)
+    )
+
     create_capture_changes_procedure(prefix)
 
     :ok
@@ -166,6 +199,16 @@ defmodule Carbonite.Migrations.V12 do
   @spec down([down_option()]) :: :ok
   def down(opts) do
     prefix = Keyword.get(opts, :carbonite_prefix, default_prefix())
+
+    alter table("triggers", primary_key: false, prefix: prefix) do
+      remove(:parent_table_name, :string)
+      remove(:parent_primary_key_columns, {:array, :string})
+    end
+
+    alter table("changes", primary_key: false, prefix: prefix) do
+      remove(:parent_table_name, :string)
+      remove(:parent_table_pk, {:array, :string})
+    end
 
     V11.create_capture_changes_procedure(prefix)
 

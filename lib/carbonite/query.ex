@@ -239,6 +239,68 @@ defmodule Carbonite.Query do
     |> maybe_order_by(opts)
   end
 
+  @doc """
+  Returns an `t:Ecto.Query.t/0` that can be used to select changes for a single record and all descendant records recursively.
+
+  Given an `t:Ecto.Schema.t/0` struct, this function builds a query that fetches all changes
+  recorded for it from the database and all changes for descendant, ordered ascending by their ID (i.e., roughly by
+  insertion date descending).
+
+  ## Example
+
+      %MyApp.Rabbit{id: 1}
+      |> Carbonite.Query.related_changes()
+      |> MyApp.Repo.all()
+
+  ## Options
+
+  * `carbonite_prefix` defines the audit trail's schema, defaults to `"carbonite_default"`
+  * `table_prefix` allows to override the table prefix, defaults to schema prefix of the record
+  * `preload` can be used to preload the transaction
+  * `order_by` allows to override the ordering, defaults to `{:asc, :id}`
+  """
+  @doc since: "0.2.0"
+  @spec related_changes(record :: Ecto.Schema.t()) :: Ecto.Query.t()
+  @spec related_changes(record :: Ecto.Schema.t(), [changes_option()]) :: Ecto.Query.t()
+  def related_changes(%schema{__meta__: %Ecto.Schema.Metadata{}} = record, opts \\ []) do
+    table_prefix =
+      Keyword.get_lazy(opts, :table_prefix, fn ->
+        schema.__schema__(:prefix) || @default_table_prefix
+      end)
+
+    table_name = schema.__schema__(:source)
+
+    table_pk =
+      for pk_col <- Enum.sort(schema.__schema__(:primary_key)) do
+        record |> Map.fetch!(pk_col) |> to_string()
+      end
+
+    initial_query =
+      from_with_prefix(Change, opts)
+      |> where([c], c.table_prefix == ^table_prefix)
+      |> where([c], c.table_name == ^table_name)
+      |> where([c], c.table_pk == ^table_pk)
+
+    recursive_query =
+      from_with_prefix(Change, opts)
+      |> join(:inner, [child], parent in "related_changes",
+        on:
+          parent.table_prefix == child.table_prefix and
+            parent.table_name == child.parent_table_name and
+            parent.table_pk == child.parent_table_pk
+      )
+
+    cte_query =
+      initial_query |> union_all(^recursive_query)
+
+    from_with_prefix(Change, opts)
+    |> recursive_ctes(true)
+    |> with_cte("related_changes", as: ^cte_query)
+    |> join(:inner, [c], cte in "related_changes", on: c.id == cte.id)
+    |> maybe_preload(opts, :transaction, from_with_prefix(Transaction, opts))
+    |> maybe_order_by(opts)
+  end
+
   defp maybe_apply(queryable, opts, key, default, fun) do
     if value = Keyword.get(opts, key, default) do
       fun.(queryable, value)

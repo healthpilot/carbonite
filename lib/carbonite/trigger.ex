@@ -16,9 +16,11 @@ defmodule Carbonite.Trigger do
 
   @type t :: %__MODULE__{
           id: id(),
-          table_name: String.t(),
           table_prefix: String.t(),
+          table_name: String.t(),
           primary_key_columns: [String.t()],
+          parent_table_name: String.t(),
+          parent_primary_key_columns: [String.t()],
           excluded_columns: [String.t()],
           filtered_columns: [String.t()],
           store_changed_from: boolean(),
@@ -31,6 +33,8 @@ defmodule Carbonite.Trigger do
     field(:table_prefix, :string)
     field(:table_name, :string)
     field(:primary_key_columns, {:array, :string})
+    field(:parent_table_name, :string)
+    field(:parent_primary_key_columns, {:array, :string})
     field(:excluded_columns, {:array, :string})
     field(:filtered_columns, {:array, :string})
     field(:store_changed_from, :boolean)

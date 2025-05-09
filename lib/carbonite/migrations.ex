@@ -229,8 +229,17 @@ defmodule Carbonite.Migrations do
   def put_trigger_config(table_name, key, value, opts \\ [])
 
   def put_trigger_config(table_name, key, value, opts)
-      when key in [:primary_key_columns, :excluded_columns, :filtered_columns] do
+      when key in [
+             :primary_key_columns,
+             :parent_primary_key_columns,
+             :excluded_columns,
+             :filtered_columns
+           ] do
     do_put_trigger_config(table_name, key, column_list(value), opts)
+  end
+
+  def put_trigger_config(table_name, :parent_table_name, value, opts) do
+    do_put_trigger_config(table_name, :parent_table_name, "'#{value}'", opts)
   end
 
   def put_trigger_config(table_name, :mode, value, opts) when value in [:capture, :ignore] do

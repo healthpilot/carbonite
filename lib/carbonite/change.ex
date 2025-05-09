@@ -27,6 +27,8 @@ defmodule Carbonite.Change do
                :table_prefix,
                :table_name,
                :table_pk,
+               :parent_table_name,
+               :parent_table_pk,
                :data,
                :changed,
                :changed_from
@@ -43,6 +45,8 @@ defmodule Carbonite.Change do
           table_prefix: String.t(),
           table_name: String.t(),
           table_pk: nil | [String.t()],
+          parent_table_name: String.t(),
+          parent_table_pk: nil | [String.t()],
           data: map(),
           changed: [String.t()],
           changed_from: nil | map(),
@@ -56,6 +60,8 @@ defmodule Carbonite.Change do
     field(:table_prefix, :string)
     field(:table_name, :string)
     field(:table_pk, {:array, :string})
+    field(:parent_table_name, :string)
+    field(:parent_table_pk, {:array, :string})
     field(:data, :map)
     field(:changed, {:array, :string})
     field(:changed_from, :map)
