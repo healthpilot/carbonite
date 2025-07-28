@@ -291,7 +291,7 @@ defmodule Carbonite.Query do
       )
 
     cte_query =
-      initial_query |> union_all(^recursive_query)
+      initial_query |> union(^recursive_query)
 
     from_with_prefix(Change, opts)
     |> recursive_ctes(true)
