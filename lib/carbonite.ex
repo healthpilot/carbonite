@@ -13,6 +13,7 @@ defmodule Carbonite do
 
   @moduledoc since: "0.1.0"
 
+  import Ecto.Query
   alias Carbonite.{Outbox, Prefix, Query, Schema, Transaction, Trigger}
   require Prefix
   require Schema
@@ -76,10 +77,49 @@ defmodule Carbonite do
     |> Transaction.changeset()
     |> repo.insert(
       prefix: carbonite_prefix,
-      on_conflict: {:replace, [:id]},
+      on_conflict: {:replace, [:xact_id]},
       conflict_target: [:id],
       returning: true
     )
+  end
+
+  @doc """
+  Deletes the current `t:Carbonite.Transaction.t/0` if no changes have been recorded.
+
+  This is sometimes useful to avoid "orphaned" transactions (without change records)
+  for operations that usually modify any tracked tables but in rare cases do nothing.
+
+  As the INSERT and DELETE on the `transactions` table has a performance cost, it is
+  usually preferable to skip the transaction entirely, if possible.
+
+  ## Example
+
+      MyApp.Repo.transaction(fn ->
+        Carbonite.insert_transaction(MyApp.Repo)
+        do_something_that_may_or_may_not_cause_a_change_to_be_recorded()
+        Carbonite.delete_transaction_if_empty(MyApp.Repo)
+      end)
+
+  ## Parameters
+
+  * `repo` - the Ecto repository
+  * `opts` - optional keyword list
+
+  ## Options
+
+  * `carbonite_prefix` - defines the audit trail's schema, defaults to `"carbonite_default"`
+  """
+  @doc since: "0.16.0"
+  @spec delete_transaction_if_empty(repo()) :: {:ok, non_neg_integer()}
+  @spec delete_transaction_if_empty(repo(), [prefix_option()]) :: {:ok, non_neg_integer()}
+  def delete_transaction_if_empty(repo, opts \\ []) do
+    {rows_deleted, _} =
+      opts
+      |> Query.current_transaction()
+      |> Query.without_changes()
+      |> repo.delete_all()
+
+    {:ok, rows_deleted}
   end
 
   @doc """
@@ -136,7 +176,7 @@ defmodule Carbonite do
 
   @type process_option ::
           Carbonite.Query.outbox_queue_option()
-          | {:filter, (Ecto.Query.t() -> Ecto.Query.t())}
+          | {:filter, (Ecto.Query.t() -> Ecto.Query.t()) | Ecto.Query.dynamic_expr()}
           | {:chunk, pos_integer()}
 
   @type process_func_option :: {:memo, Outbox.memo()} | {:discard_last, boolean()}
@@ -262,7 +302,7 @@ defmodule Carbonite do
 
   * `min_age` - the minimum age of a record, defaults to 300 seconds (set nil to disable)
   * `limit` - limits the query in size, defaults to 100 (set nil to disable)
-  * `filter` - function for refining the batch query, defaults to nil
+  * `filter` - Ecto `dynamic/2` or function for refining the batch query, defaults to nil
   * `chunk` - defines the size of the chunk passed to the process function, defaults to 1
   * `carbonite_prefix` - defines the audit trail's schema, defaults to `"carbonite_default"`
   """
@@ -291,17 +331,20 @@ defmodule Carbonite do
   end
 
   defp query_func(repo, opts) do
-    filter = Keyword.get(opts, :filter) || (& &1)
+    filter = Keyword.get(opts, :filter, dynamic(true))
     chunk = Keyword.get(opts, :chunk, 1)
 
     fn outbox ->
       outbox
       |> Carbonite.Query.outbox_queue(opts)
-      |> filter.()
+      |> apply_filter(filter)
       |> repo.all()
       |> Enum.chunk_every(chunk)
     end
   end
+
+  defp apply_filter(query, filter) when is_function(filter), do: filter.(query)
+  defp apply_filter(query, %Ecto.Query.DynamicExpr{} = filter), do: where(query, ^filter)
 
   defp process_func(process_func) do
     fn chunk, outbox ->

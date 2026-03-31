@@ -1,8 +1,33 @@
-## Unreleased
+## [0.16.0] - 2025-09-10
+
+### Added
+
+- Allow to set the `last_transaction_id` when outbox is created
+- Accept Ecto `dynamic/2` expressions for the `:filter` option on `Carbonite.process/4`.
+- New `Carbonite.delete_transaction_if_empty/2` deletes the current transaction if no changes have been recorded.
+
+### Changed
+
+- Multi steps build by `Carbonite.Multi.insert_transaction/3` are now called `{:carbonite_transactions, <prefix>}`
+  when the `:carbonite_prefix` option is given to allow inserting transactions into multiple prefixes in one multi.
+
+## [0.15.2] - 2025-07-15
+
+### Added
+
+- Support for Elixir 1.18's built-in `JSON` (@caleb-restar)
+
+## [0.15.1] - 2025-06-19
+
+**New migration patches:** 12
 
 ### Added
 
 - Better error handling when the trigger record is non-existent.
+
+### Fixed
+
+- Fixed incompatibility with Ecto 3.13 as forced `on_conflict` updates on primary keys don't make it into the SQL anymore. See https://github.com/elixir-ecto/ecto_sql/issues/674.
 
 ## [0.15.0] - 2025-01-01
 
